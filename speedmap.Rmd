@@ -1,0 +1,149 @@
+---
+output: 
+  html_document:
+    self_contained: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache=TRUE)
+```
+
+```{r}
+library("readr")
+library("dplyr")
+library("stringr")
+library("ggplot2")
+library("sf")
+library("leaflet")
+```
+
+```{r}
+# read csv data
+datos <- readr::read_csv2("datawhour.csv", guess_max = 100000, 
+               locale = locale("es", decimal_mark = ",", encoding = "ISO-8859-1"))
+```
+
+
+```{r}
+# prepare data
+speed.df <- datos %>%
+  filter(!is.na(speed)) %>%
+  mutate(month = as.numeric(month),
+         day = as.numeric(day), 
+         hour.num = lubridate::parse_date_time(hour, "H! M! S!", quiet = TRUE),
+         speed.num = str_remove_all(speed, " "),
+         speed.num = as.numeric(str_extract(speed.num, "\\d+")),
+         speed.lim.num = as.numeric(str_extract(speed_limit, "\\d+")),
+         speed.excess = speed.num - speed.lim.num)
+
+```
+
+
+
+```{r}
+# create spatial dataframe (sf)
+speed.sf <- speed.df %>%
+  filter(!is.na(longitude), !is.na(latitude)) %>%
+  st_as_sf(coords = c("longitude", "latitude"), 
+           crs = "+proj=longlat +datum=WGS84")
+```
+
+
+
+```{r}
+# prepare spatial data
+
+coords <- as.data.frame(st_coordinates(speed.sf))
+coords$key <- paste(coords$X, coords$Y, sep = "_")
+
+
+data.per.site <- speed.sf %>%
+  group_by(coords$X, coords$Y) %>%
+  summarise(n = n(),
+            avg.speed = mean(speed.num)) %>%
+  mutate(circle.radius = case_when(
+    n < 5 ~ 6,
+    n >= 5 & n < 10 ~ 8,
+    n >= 10 & n < 50 ~ 10,
+    n >= 50 & n < 1000 ~ 12,
+    n >= 1000 & n < 5000 ~ 14,
+    n > 5000 ~ 16
+  )) %>%
+  rename(X = `coords$X`, Y = `coords$Y`) %>%
+  mutate(coords.key = paste(X, Y, sep = "_")) %>%
+  arrange(coords.key)
+
+#data.per.site$site <- 1:nrow(data.per.site)
+
+speeds.per.site <- split(speed.sf, f = coords$key)
+
+speeds.hist.fun <- function(df) {
+    ggp <- ggplot(df) + 
+      geom_histogram(aes(x = speed.num), colour = "darkgrey", 
+                     fill = "#feb24c", binwidth = 1) +
+      xlim(50, max(df$speed.num) + 2) +
+      labs(x = "Speed (km/h)", y = "# speeding tickets") +
+      theme_minimal(base_size = 15) +
+      theme(panel.grid.minor = element_blank())
+    ggp
+}
+
+speeds.histograms <- lapply(speeds.per.site, speeds.hist.fun)
+```
+
+
+```{r out.width='100%'}
+
+# leaflet map
+
+# set extent
+xmin = -5.7
+xmax = -5.607
+ymin = 43.512
+ymax = 43.549
+
+
+pal <- colorNumeric(
+  palette = "YlOrRd",
+  domain = data.per.site$avg.speed)
+
+leaflet() %>%
+  fitBounds(lng1 = xmin, lat1 = ymin, lng2 = xmax, lat2 = ymax) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addCircleMarkers(data = data.per.site,
+                   radius = ~circle.radius,
+                   color = ~pal(avg.speed),
+                   stroke = FALSE, fillOpacity = 0.8,
+                   popup = leafpop::popupGraph(speeds.histograms, height = 200)) %>%
+  mapview::addHomeButton(raster::extent(c(xmin, xmax, ymin, ymax)), 
+                         "Full extent", position = "topright") %>%
+  addLegend(position = "bottomright", 
+            colors = paste("grey", "; width:", seq(10, 30, length.out = 6), 
+                           "px; height:", seq(10, 30, length.out = 6), "px", 
+                           sep = ""), 
+            labels = c("1 - 5", "5 - 10", "10 - 50", "50 - 1000", "1000 - 5000", "5000 - 20000"),
+            title = "# speeding tickets") %>%
+  addLegend(position = "bottomright", pal = pal, values = ~avg.speed, 
+            data = data.per.site, bins = seq(60, 80, by = 5), 
+            title = "Average speed<br><center>(km/h)</center>") 
+
+## change css in leafletfix-1.0.0/leafletfix.css
+# .legend i {
+#   border-radius: 100%;
+#   margin-top: 4px;
+#   margin-right: 4px;
+#   opacity: 0.7;
+#   display: inline-block;
+#   vertical-align: middle;
+#   /*For IE 7*/
+#   zoom: 1;
+#   *display: inline;
+# }
+
+```
+
+
+
+
+**Speeding in Gijon**. Number of speeding tickets issued between `r min(speed.sf$year)` and `r max(speed.sf$year)` at different speed monitoring stations across the city. Point size is related to the number of infractions recorded at each location, and point colour represents the average speed of the fined cars. Click on each point to see a histogram of the recorded speeds at that site. Only speeding tickets having geographical information (`r nrow(speed.sf)` out of `r nrow(speed.df)`, `r 100*round(nrow(speed.sf)/nrow(speed.df), digits = 2)`%) are shown on this map.
+
