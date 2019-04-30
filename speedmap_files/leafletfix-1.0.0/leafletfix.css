@@ -24,12 +24,12 @@ img.leaflet-tile {
   stroke: #555;
 }
 .legend i {
-  width: 18px;
-  height: 18px;
+  border-radius: 100%;
+  margin-top: 4px;
   margin-right: 4px;
   opacity: 0.7;
   display: inline-block;
-  vertical-align: top;
+  vertical-align: middle;
   /*For IE 7*/
   zoom: 1;
   *display: inline;
