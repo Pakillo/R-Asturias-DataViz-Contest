@@ -124,6 +124,7 @@ leaflet() %>%
             labels = c("1 - 5", "5 - 10", "10 - 50", "50 - 1000", "1000 - 5000", "5000 - 20000"),
             title = "# speeding tickets") %>%
   addLegend(position = "bottomright", pal = pal, values = ~avg.speed, 
+            opacity = 1,
             data = data.per.site, bins = seq(60, 80, by = 5), 
             title = "Average speed<br><center>(km/h)</center>") 
 
